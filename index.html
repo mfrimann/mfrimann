@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unraid Custom WebUI CSS Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link id="google-font-link" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="panel controls-panel">
+        <h1>Unraid CSS Builder</h1>
+        <p class="subtitle">Byg og preview dit eget Custom WebUI CSS tema til Unraid.</p>
+
+        <section>
+          <h2>Farver</h2>
+          <div class="control-grid">
+            <label>Primær <input type="color" id="primary" value="#f15a2c" /></label>
+            <label>Accent <input type="color" id="accent" value="#4cc2ff" /></label>
+            <label>Baggrund <input type="color" id="bg" value="#101216" /></label>
+            <label>Overflade <input type="color" id="surface" value="#1a1f28" /></label>
+            <label>Tekst <input type="color" id="text" value="#f5f7ff" /></label>
+            <label>Dæmpet <input type="color" id="muted" value="#94a3b8" /></label>
+            <label>Sidebar <input type="color" id="sidebar" value="#0b0e13" /></label>
+          </div>
+        </section>
+
+        <section>
+          <h2>Typografi</h2>
+          <label for="font-family">Google Font</label>
+          <select id="font-family">
+            <option value="Inter">Inter</option>
+            <option value="Roboto">Roboto</option>
+            <option value="Poppins">Poppins</option>
+            <option value="Montserrat">Montserrat</option>
+            <option value="Work Sans">Work Sans</option>
+            <option value="DM Sans">DM Sans</option>
+            <option value="Nunito Sans">Nunito Sans</option>
+            <option value="Source Sans 3">Source Sans 3</option>
+          </select>
+          <label for="font-size">Basisskrift (px)</label>
+          <input id="font-size" type="range" min="13" max="19" step="1" value="15" />
+          <output id="font-size-out">15px</output>
+        </section>
+
+        <section>
+          <h2>Form</h2>
+          <label for="radius">Border radius (px)</label>
+          <input id="radius" type="range" min="4" max="24" step="1" value="12" />
+          <output id="radius-out">12px</output>
+
+          <label for="shadow">Skygge styrke</label>
+          <input id="shadow" type="range" min="0" max="100" step="5" value="45" />
+          <output id="shadow-out">45%</output>
+        </section>
+
+        <div class="button-row">
+          <button id="reset" class="ghost">Nulstil</button>
+          <button id="copy">Kopiér CSS</button>
+        </div>
+      </aside>
+
+      <main class="panel preview-panel">
+        <header class="preview-header">
+          <h2>Unraid-lignende preview</h2>
+          <span>Template visning til hurtig theme-test</span>
+        </header>
+
+        <div id="unraid-preview" class="unraid-preview">
+          <nav class="preview-sidebar">
+            <div class="brand">UNRAID</div>
+            <ul>
+              <li class="active">Dashboard</li>
+              <li>Shares</li>
+              <li>Docker</li>
+              <li>VMs</li>
+              <li>Apps</li>
+              <li>Settings</li>
+            </ul>
+          </nav>
+
+          <section class="preview-content">
+            <div class="topbar">
+              <div class="search">Søg i system…</div>
+              <div class="status-chip">Array: Healthy</div>
+            </div>
+
+            <div class="stats-grid">
+              <article class="card">
+                <h3>CPU</h3>
+                <p class="big">32%</p>
+                <small>Ryzen 7 • 8 kerner</small>
+              </article>
+              <article class="card">
+                <h3>RAM</h3>
+                <p class="big">47%</p>
+                <small>15.2 / 32 GB</small>
+              </article>
+              <article class="card">
+                <h3>Cache</h3>
+                <p class="big">71%</p>
+                <small>1.4 / 2 TB</small>
+              </article>
+            </div>
+
+            <article class="card table-card">
+              <div class="card-head">
+                <h3>Disk devices</h3>
+                <button class="action">Spin up all</button>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>Navn</th><th>Type</th><th>Temperatur</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>disk1</td><td>XFS</td><td>36°C</td><td><span class="pill ok">OK</span></td></tr>
+                  <tr><td>disk2</td><td>XFS</td><td>39°C</td><td><span class="pill ok">OK</span></td></tr>
+                  <tr><td>parity</td><td>XFS</td><td>40°C</td><td><span class="pill warn">Check</span></td></tr>
+                </tbody>
+              </table>
+            </article>
+          </section>
+        </div>
+
+        <section class="code-output">
+          <div class="code-head">
+            <h3>Genereret CSS til plugin</h3>
+            <span>Indsæt i “Custom WebUI CSS” i Unraid</span>
+          </div>
+          <textarea id="css-output" readonly></textarea>
+        </section>
+      </main>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
