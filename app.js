@@ -1,21 +1,21 @@
-const STORAGE_KEY = 'podcast_tracker_v1';
-const DEFAULT_CATEGORIES = ['Tech', 'News', 'Comedy', 'Business', 'Læring'];
+const STORAGE_KEY = 'podcast_tracker_v2';
+const DEFAULT_CATEGORIES = [
+  { name: 'Tech', icon: '💻', editable: false },
+  { name: 'News', icon: '📰', editable: false },
+  { name: 'Comedy', icon: '😂', editable: false },
+  { name: 'Business', icon: '💼', editable: false },
+  { name: 'Læring', icon: '📘', editable: false },
+];
 
 const state = {
   route: 'home',
   selectedPodcastId: null,
   selectedEpisodes: new Set(),
   mobileOpen: false,
+  sort: { by: 'number', dir: 'asc' },
+  loading: false,
   db: loadDb(),
 };
-
-function loadDb() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw) return JSON.parse(raw);
-  return { podcasts: [], episodes: [], categories: [...DEFAULT_CATEGORIES], darkMode: false };
-}
-function saveDb() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.db)); }
-function uid() { return crypto.randomUUID(); }
 
 const els = {
   sidebar: document.getElementById('sidebar'),
@@ -25,287 +25,638 @@ const els = {
   podcastModal: document.getElementById('podcastModal'),
   episodeModal: document.getElementById('episodeModal'),
   guideModal: document.getElementById('importGuideModal'),
+  statusBadge: document.getElementById('statusBadge'),
 };
 
-function fmtMins(mins) {
-  const h = Math.floor(mins / 60); const m = mins % 60;
-  return `${h}t ${m}m`;
+function loadDb() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) return JSON.parse(raw);
+  return {
+    podcasts: [],
+    episodes: [],
+    categories: DEFAULT_CATEGORIES,
+    darkMode: false,
+  };
 }
+function saveDb() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.db)); }
+function uid() { return crypto.randomUUID(); }
+function nowDate() { return new Date().toISOString().slice(0, 10); }
 function parseDuration(v) {
-  const parts = v.split(':').map(Number);
-  if (parts.length === 3) return parts[0] * 60 + parts[1] + Math.round(parts[2] / 60);
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  const parts = String(v).split(':').map(Number);
+  if (parts.length === 3) return (parts[0] * 60) + parts[1] + Math.round(parts[2] / 60);
+  if (parts.length === 2) return (parts[0] * 60) + parts[1];
   return Number(v) || 0;
 }
-function dateNow() { return new Date().toISOString().slice(0,10); }
+function formatMinutes(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h}t ${m}m`;
+}
+function podcastById(id) { return state.db.podcasts.find((p) => p.id === id); }
+function episodesForPodcast(id) { return state.db.episodes.filter((e) => e.podcastId === id); }
+function setLoading(flag, text = 'Klar') {
+  state.loading = flag;
+  els.statusBadge.textContent = flag ? 'Arbejder…' : text;
+}
+
+function closeMobileMenu() {
+  state.mobileOpen = false;
+  els.sidebar.classList.remove('open');
+  els.overlay.classList.add('hidden');
+}
 
 function render() {
   document.body.classList.toggle('dark', !!state.db.darkMode);
-  els.title.textContent = state.route === 'podcast' ? 'Podcast detaljer' : ({home:'Home',podcasts:'Alle podcasts',stats:'Statistik',settings:'Indstillinger'})[state.route];
-  const root = els.view;
+  const titles = {
+    home: 'Home',
+    podcasts: 'Alle Podcasts',
+    podcast: 'Podcast Detaljer',
+    stats: 'Statistik',
+    settings: 'Indstillinger',
+  };
+  els.title.textContent = titles[state.route] || 'Podcast Tracking Tool';
 
-  if (state.route === 'home') {
-    const podcasts = state.db.podcasts;
-    const listened = state.db.episodes.filter(e => e.listened);
-    const saved = listened.reduce((a,e)=>a+Math.round(e.duration/6),0);
-    root.innerHTML = `
-      <div class="grid stats">
-        <div class="card"><h3>Podcasts</h3><p>${podcasts.length}</p></div>
-        <div class="card"><h3>Total lyttetid</h3><p>${fmtMins(listened.reduce((a,e)=>a+e.duration,0))}</p></div>
-        <div class="card"><h3>Tid sparet (1.2x)</h3><p>${fmtMins(saved)}</p></div>
-        <div class="card"><h3>Resterende episoder</h3><p>${state.db.episodes.filter(e=>!e.listened).length}</p></div>
-      </div>`;
-  }
+  if (state.route === 'home') return renderHome();
+  if (state.route === 'podcasts') return renderPodcasts();
+  if (state.route === 'podcast') return renderPodcastDetail();
+  if (state.route === 'stats') return renderStats();
+  if (state.route === 'settings') return renderSettings();
+}
 
-  if (state.route === 'podcasts') {
-    root.innerHTML = `
-      <div class="actions" style="margin-bottom:.8rem">
-        <input id="searchInput" placeholder="Søg podcasts..." />
-        <label><input id="favFilter" type="checkbox" /> Kun favoritter</label>
+function renderHome() {
+  const listened = state.db.episodes.filter((e) => e.listened);
+  const totalListened = listened.reduce((acc, e) => acc + e.duration, 0);
+  const savedAt12 = listened.reduce((acc, e) => acc + Math.round(e.duration / 6), 0);
+
+  const podcastCount = new Map();
+  listened.forEach((e) => podcastCount.set(e.podcastId, (podcastCount.get(e.podcastId) || 0) + 1));
+  const mostListened = [...podcastCount.entries()].sort((a, b) => b[1] - a[1])[0];
+  const mostListenedName = mostListened ? podcastById(mostListened[0])?.title || '—' : '—';
+
+  const recentPodcasts = [...state.db.podcasts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4);
+  const topPodcasts = [...state.db.podcasts]
+    .map((p) => ({ ...p, listened: episodesForPodcast(p.id).filter((e) => e.listened).length }))
+    .sort((a, b) => b.listened - a.listened)
+    .slice(0, 4);
+  const recentEpisodes = [...state.db.episodes]
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, 5);
+
+  els.view.innerHTML = `
+    <section class="grid stats-grid">
+      <article class="card kpi"><span class="small">Podcasts</span><strong>${state.db.podcasts.length}</strong></article>
+      <article class="card kpi"><span class="small">Total lyttetid</span><strong>${formatMinutes(totalListened)}</strong></article>
+      <article class="card kpi"><span class="small">Tid sparet ved 1.2x</span><strong>${formatMinutes(savedAt12)}</strong></article>
+      <article class="card kpi"><span class="small">Mest lyttet</span><strong>${mostListenedName}</strong></article>
+    </section>
+
+    <section class="grid" style="margin-top:1rem;grid-template-columns:2fr 2fr 3fr">
+      <article class="card"><h3>Seneste Podcasts</h3><ul class="list">${recentPodcasts.map((p) => `<li><span>${p.title}</span><span class="small">${p.platform || '—'}</span></li>`).join('') || '<li>Ingen data</li>'}</ul></article>
+      <article class="card"><h3>Mest lyttede Podcasts</h3><ul class="list">${topPodcasts.map((p) => `<li><span>${p.title}</span><span class="small">${p.listened} lyttet</span></li>`).join('') || '<li>Ingen data</li>'}</ul></article>
+      <article class="card">
+        <h3>Seneste Episoder</h3>
+        <div class="table-wrap" style="margin-top:.6rem"><table><thead><tr><th>Titel</th><th>Podcast</th><th>Dato</th></tr></thead>
+          <tbody>${recentEpisodes.map((e) => `<tr><td>${e.title}</td><td>${podcastById(e.podcastId)?.title || 'Ukendt'}</td><td>${e.date}</td></tr>`).join('') || '<tr><td colspan="3">Ingen episoder</td></tr>'}</tbody>
+        </table></div>
+      </article>
+    </section>`;
+}
+
+function renderPodcasts() {
+  els.view.innerHTML = `
+    <section class="card">
+      <div class="actions">
+        <input id="searchInput" placeholder="Søg i titel eller beskrivelse" />
+        <label><input id="favOnly" type="checkbox" /> Kun favoritter</label>
       </div>
-      <div id="podcastGrid" class="grid podcasts"></div>`;
-    const search = root.querySelector('#searchInput');
-    const fav = root.querySelector('#favFilter');
-    const grid = root.querySelector('#podcastGrid');
-    const paint = () => {
-      const q = search.value.toLowerCase();
-      const list = state.db.podcasts.filter(p => (!fav.checked || p.favorite) && (`${p.title} ${p.description}`.toLowerCase().includes(q)));
-      grid.innerHTML = list.map(p => {
-        const eps = state.db.episodes.filter(e=>e.podcastId===p.id);
-        const listened = eps.filter(e=>e.listened).length;
-        return `<div class="card">
-            <h3>${p.favorite?'⭐ ':''}${p.title}</h3>
-            <p>${p.description||''}</p>
-            <p>${listened}/${eps.length} episoder</p>
-            <div class="actions"><button data-open="${p.id}">Åbn</button><button data-del="${p.id}" class="danger">Slet</button></div>
-          </div>`;
-      }).join('') || '<p>Ingen podcasts.</p>';
-    };
-    paint();
-    search.oninput = paint; fav.onchange = paint;
-    grid.onclick = (e) => {
-      const openId = e.target.dataset.open;
-      const delId = e.target.dataset.del;
-      if (openId) { state.route = 'podcast'; state.selectedPodcastId = openId; state.selectedEpisodes.clear(); render(); }
-      if (delId && confirm('Slet podcast og alle episoder?')) {
-        state.db.podcasts = state.db.podcasts.filter(p=>p.id!==delId);
-        state.db.episodes = state.db.episodes.filter(ep=>ep.podcastId!==delId);
-        saveDb(); render();
-      }
-    };
-  }
+    </section>
+    <section id="podcastGrid" class="grid podcast-grid" style="margin-top:1rem"></section>`;
 
-  if (state.route === 'podcast') {
-    const p = state.db.podcasts.find(x=>x.id===state.selectedPodcastId);
-    if (!p) { state.route='podcasts'; return render(); }
-    let eps = state.db.episodes.filter(e=>e.podcastId===p.id).sort((a,b)=>a.number-b.number);
-    root.innerHTML = `
-      <div class="card">
-        <div class="actions" style="justify-content:space-between">
-          <h3>${p.title}</h3>
-          <div class="actions"><button id="editPodcast">Rediger podcast</button><button id="sheetImport">📄 Google Sheets</button></div>
+  const search = els.view.querySelector('#searchInput');
+  const fav = els.view.querySelector('#favOnly');
+  const grid = els.view.querySelector('#podcastGrid');
+
+  const paint = () => {
+    const q = search.value.toLowerCase();
+    const list = state.db.podcasts.filter((p) => {
+      if (fav.checked && !p.favorite) return false;
+      return `${p.title} ${p.description || ''}`.toLowerCase().includes(q);
+    });
+
+    grid.innerHTML = list.map((p) => {
+      const eps = episodesForPodcast(p.id);
+      const listened = eps.filter((e) => e.listened).length;
+      const remainingMin = eps.filter((e) => !e.listened).reduce((a, e) => a + e.duration, 0);
+      return `<article class="card">
+        <h3>${p.favorite ? '⭐ ' : ''}${p.title}</h3>
+        <p class="small" style="margin-top:.4rem">${p.description || 'Ingen beskrivelse'}</p>
+        <p class="small" style="margin-top:.5rem">${listened}/${eps.length} lyttet • ${formatMinutes(remainingMin)} tilbage</p>
+        <div class="actions" style="margin-top:.7rem">
+          <button data-open="${p.id}" class="primary">Åbn</button>
+          <button data-del="${p.id}" class="danger">Slet</button>
         </div>
-        <p>${p.description || ''}</p>
+      </article>`;
+    }).join('') || '<div class="card">Ingen podcasts fundet.</div>';
+  };
+
+  search.oninput = paint;
+  fav.onchange = paint;
+  paint();
+
+  grid.onclick = (event) => {
+    const open = event.target.dataset.open;
+    const del = event.target.dataset.del;
+    if (open) {
+      state.route = 'podcast';
+      state.selectedPodcastId = open;
+      state.selectedEpisodes.clear();
+      closeMobileMenu();
+      render();
+    }
+    if (del && confirm('Slet podcast og alle tilknyttede episoder?')) {
+      state.db.podcasts = state.db.podcasts.filter((p) => p.id !== del);
+      state.db.episodes = state.db.episodes.filter((e) => e.podcastId !== del);
+      saveDb();
+      render();
+    }
+  };
+}
+
+function renderPodcastDetail() {
+  const podcast = podcastById(state.selectedPodcastId);
+  if (!podcast) {
+    state.route = 'podcasts';
+    return render();
+  }
+
+  const episodes = [...episodesForPodcast(podcast.id)].sort(sortEpisodes);
+  const listened = episodes.filter((e) => e.listened);
+  const statsHtml = `
+    <details>
+      <summary>Vis/skjul statistik</summary>
+      <div class="grid stats-grid" style="margin-top:.7rem">
+        <article class="card kpi"><span class="small">Total episoder</span><strong>${listened.length}/${episodes.length}</strong></article>
+        <article class="card kpi"><span class="small">Total lyttetid</span><strong>${formatMinutes(listened.reduce((a,e)=>a+e.duration,0))}</strong></article>
+        <article class="card kpi"><span class="small">1.2x lyttetid</span><strong>${formatMinutes(Math.round(listened.reduce((a,e)=>a+e.duration,0)/1.2))}</strong></article>
+        <article class="card kpi"><span class="small">Tid sparet</span><strong>${formatMinutes(listened.reduce((a,e)=>a+Math.round(e.duration/6),0))}</strong></article>
       </div>
-      <div class="card" style="margin-top:1rem">
+    </details>`;
+
+  els.view.innerHTML = `
+    <section class="card">
+      <div class="actions" style="justify-content:space-between">
+        <div>
+          <h2>${podcast.title}</h2>
+          <p class="small" style="margin-top:.45rem">${podcast.category || ''} • ${podcast.language || ''} • ${podcast.platform || ''}</p>
+        </div>
+        <div class="actions">
+          <button id="editPodcastBtn">Rediger Podcast</button>
+          <button id="sheetImportBtn">📄 Import fra Sheets</button>
+        </div>
+      </div>
+      <p class="small" style="margin-top:.65rem">${podcast.description || 'Ingen beskrivelse.'}</p>
+      ${statsHtml}
+    </section>
+
+    <section class="card" style="margin-top:1rem">
+      <div class="actions" style="justify-content:space-between">
         <div class="actions">
           <button id="bulkListened" class="success">Markér som lyttet</button>
           <button id="bulkUnlistened">Markér som ulyttet</button>
           <button id="bulkDelete" class="danger">Slet valgte</button>
-          <span>${state.selectedEpisodes.size} valgt</span>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th><input id="selAll" type="checkbox" /></th><th>Nr</th><th>Titel</th><th>Dato</th><th>Varighed</th><th class="hide-mobile">1.2x</th><th>Status</th><th>Handlinger</th></tr></thead>
-          <tbody>
-            ${eps.map(ep=>`<tr class="${state.selectedEpisodes.has(ep.id)?'selected':''}">
-              <td><input data-sel="${ep.id}" type="checkbox" ${state.selectedEpisodes.has(ep.id)?'checked':''}></td>
-              <td>${ep.number || '-'}</td><td>${ep.title}</td><td>${ep.date}</td><td>${fmtMins(ep.duration)}</td><td class="hide-mobile">${fmtMins(Math.round(ep.duration/1.2))}</td>
-              <td>${ep.listened?'✅':'🔴'}</td>
-              <td><button data-toggle="${ep.id}">Toggle</button> <button data-edit="${ep.id}">Rediger</button> <button data-del="${ep.id}" class="danger">Slet</button></td></tr>`).join('')}
-          </tbody>
-        </table></div>
-      </div>`;
-
-    root.querySelector('#editPodcast').onclick = () => openPodcastModal(p);
-    root.querySelector('#sheetImport').onclick = () => openSheetsImport(p.id);
-
-    root.querySelector('#selAll').checked = eps.length && state.selectedEpisodes.size === eps.length;
-    root.querySelector('#selAll').onchange = (e)=>{
-      if (e.target.checked) eps.forEach(ep=>state.selectedEpisodes.add(ep.id));
-      else state.selectedEpisodes.clear();
-      render();
-    };
-
-    root.querySelectorAll('[data-sel]').forEach(c => c.onchange = (e)=>{
-      const id = e.target.dataset.sel;
-      e.target.checked ? state.selectedEpisodes.add(id) : state.selectedEpisodes.delete(id);
-      render();
-    });
-
-    const bulkToggle = (listenVal) => {
-      const ids = [...state.selectedEpisodes];
-      state.db.episodes = state.db.episodes.map(ep => ids.includes(ep.id) && ep.listened !== listenVal ? {...ep, listened: listenVal, listenedDate: listenVal ? dateNow() : ''} : ep);
-      state.selectedEpisodes.clear(); saveDb(); render();
-    };
-    root.querySelector('#bulkListened').onclick = () => bulkToggle(true);
-    root.querySelector('#bulkUnlistened').onclick = () => bulkToggle(false);
-    root.querySelector('#bulkDelete').onclick = () => {
-      const ids = [...state.selectedEpisodes];
-      if (!ids.length) return;
-      if (!confirm(`Slet ${ids.length} episoder?`)) return;
-      state.db.episodes = state.db.episodes.filter(ep=>!ids.includes(ep.id));
-      state.selectedEpisodes.clear(); saveDb(); render();
-    };
-
-    root.querySelector('tbody').onclick = (e)=>{
-      const id = e.target.dataset.toggle || e.target.dataset.edit || e.target.dataset.del;
-      if (!id) return;
-      if (e.target.dataset.toggle) {
-        state.db.episodes = state.db.episodes.map(ep=>ep.id===id ? {...ep, listened: !ep.listened, listenedDate: !ep.listened ? dateNow() : ''} : ep);
-      }
-      if (e.target.dataset.edit) openEpisodeModal(state.db.episodes.find(ep=>ep.id===id));
-      if (e.target.dataset.del && confirm('Slet episode?')) state.db.episodes = state.db.episodes.filter(ep=>ep.id!==id);
-      saveDb(); render();
-    };
-  }
-
-  if (state.route === 'stats') {
-    const eps = state.db.episodes;
-    const remaining = eps.filter(e=>!e.listened);
-    root.innerHTML = `<div class="grid stats">
-      <div class="card"><h3>Resterende episoder</h3><p>${remaining.length}</p></div>
-      <div class="card"><h3>Resterende tid</h3><p>${fmtMins(remaining.reduce((a,e)=>a+e.duration,0))}</p></div>
-      <div class="card"><h3>Resterende tid 1.2x</h3><p>${fmtMins(Math.round(remaining.reduce((a,e)=>a+e.duration,0)/1.2))}</p></div>
-      <div class="card"><h3>Total lyttetid</h3><p>${fmtMins(eps.filter(e=>e.listened).reduce((a,e)=>a+e.duration,0))}</p></div>
-    </div>`;
-  }
-
-  if (state.route === 'settings') {
-    const customCategories = state.db.categories.filter(c=>!DEFAULT_CATEGORIES.includes(c));
-    root.innerHTML = `<div class="card">
-      <h3>Import/Export <button id="guideBtn">❓</button></h3>
-      <div class="actions"><button id="exportBtn">Eksport JSON</button><input type="file" id="importFile"/></div>
-      <p>Lagerplads: ${(new Blob([JSON.stringify(state.db)]).size/1024).toFixed(2)} KB</p>
-      <button id="clearAll" class="danger">Slet alle data</button>
-    </div>
-    <div class="card" style="margin-top:1rem">
-      <h3>Kategorier</h3>
-      <div class="actions"><input id="catInput" placeholder="Ny kategori"><button id="addCat">Tilføj</button></div>
-      <ul>${state.db.categories.map(c=>`<li>${c} ${customCategories.includes(c)?`<button data-delcat="${c}">Slet</button>`:''}</li>`).join('')}</ul>
-    </div>`;
-
-    root.querySelector('#guideBtn').onclick = openImportGuide;
-    root.querySelector('#exportBtn').onclick = () => {
-      const blob = new Blob([JSON.stringify(state.db, null, 2)], {type:'application/json'});
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `podcast-backup-${dateNow()}.json`; a.click();
-    };
-    root.querySelector('#importFile').onchange = async (e)=> {
-      const file = e.target.files[0]; if (!file) return;
-      state.db = JSON.parse(await file.text()); saveDb(); render();
-    };
-    root.querySelector('#clearAll').onclick = ()=>{ if (confirm('Slet alle data?')) { localStorage.removeItem(STORAGE_KEY); state.db = loadDb(); render(); } };
-    root.querySelector('#addCat').onclick = ()=>{ const v=root.querySelector('#catInput').value.trim(); if(v){ state.db.categories.push(v); saveDb(); render();}};
-    root.querySelectorAll('[data-delcat]').forEach(b=>b.onclick=()=>{ state.db.categories = state.db.categories.filter(c=>c!==b.dataset.delcat); saveDb(); render();});
-  }
-}
-
-function openPodcastModal(podcast=null) {
-  const isEdit = !!podcast;
-  els.podcastModal.innerHTML = `<form method="dialog">
-      <h3>${isEdit?'Rediger':'Tilføj'} Podcast</h3>
-      <div class="form-grid">
-        <input class="full" name="title" placeholder="Titel" value="${podcast?.title||''}" required>
-        <select name="category">${state.db.categories.map(c=>`<option ${podcast?.category===c?'selected':''}>${c}</option>`)}</select>
-        <input name="language" placeholder="Sprog" value="${podcast?.language||''}">
-        <select name="platform"><option>Pocket Casts</option><option>YouTube</option><option>Podimo</option></select>
-        <input class="full" name="feedUrl" placeholder="Feed URL" value="${podcast?.feedUrl||''}">
-        <input class="full" name="image" placeholder="Billede URL" value="${podcast?.image||''}">
-        <textarea class="full" name="description" placeholder="Beskrivelse">${podcast?.description||''}</textarea>
-        <label class="full"><input name="favorite" type="checkbox" ${podcast?.favorite?'checked':''}> Favorit</label>
+        <span class="badge">${state.selectedEpisodes.size} valgt</span>
       </div>
-      <div class="actions" style="margin-top:.7rem"><button class="primary" value="ok">Gem</button><button value="cancel">Annuller</button></div>
-    </form>`;
-  const form = els.podcastModal.querySelector('form');
-  els.podcastModal.showModal();
-  form.onsubmit = (e)=>{
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(form).entries());
-    d.favorite = form.favorite.checked;
-    if (isEdit) state.db.podcasts = state.db.podcasts.map(p=>p.id===podcast.id ? {...p,...d} : p);
-    else state.db.podcasts.push({id:uid(),...d, createdAt:Date.now()});
-    saveDb(); els.podcastModal.close(); render();
+
+      <div class="table-wrap" style="margin-top:.8rem">
+        <table>
+          <thead>
+            <tr>
+              <th><input id="selectAll" type="checkbox" /></th>
+              <th><button data-sort="number">Episode #</button></th>
+              <th><button data-sort="title">Titel</button></th>
+              <th><button data-sort="date">Dato</button></th>
+              <th><button data-sort="duration">Varighed</button></th>
+              <th class="hide-mobile">1.2x</th>
+              <th class="hide-mobile">Sparet</th>
+              <th>Status</th>
+              <th class="hide-mobile">Lyttet dato</th>
+              <th>Handling</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${episodes.map((e) => `
+              <tr class="${state.selectedEpisodes.has(e.id) ? 'selected' : ''}">
+                <td><input type="checkbox" data-sel="${e.id}" ${state.selectedEpisodes.has(e.id) ? 'checked' : ''} /></td>
+                <td>${e.number ?? '-'}</td>
+                <td>${e.title}</td>
+                <td>${e.date}</td>
+                <td>${formatMinutes(e.duration)}</td>
+                <td class="hide-mobile">${formatMinutes(Math.round(e.duration / 1.2))}</td>
+                <td class="hide-mobile">${formatMinutes(Math.round(e.duration / 6))}</td>
+                <td>${e.listened ? '✅ Lyttet' : '🔴 Ulyttet'}</td>
+                <td class="hide-mobile">${e.listenedDate || '-'}</td>
+                <td>
+                  <button data-toggle="${e.id}" class="ghost">Toggle</button>
+                  <button data-edit="${e.id}" class="ghost">Rediger</button>
+                  <button data-del="${e.id}" class="danger">Slet</button>
+                </td>
+              </tr>`).join('') || '<tr><td colspan="10">Ingen episoder endnu.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>`;
+
+  els.view.querySelector('#editPodcastBtn').onclick = () => openPodcastModal(podcast);
+  els.view.querySelector('#sheetImportBtn').onclick = () => openSheetsImport(podcast.id);
+
+  const selectAll = els.view.querySelector('#selectAll');
+  selectAll.checked = episodes.length > 0 && episodes.every((e) => state.selectedEpisodes.has(e.id));
+  selectAll.onchange = (event) => {
+    if (event.target.checked) episodes.forEach((e) => state.selectedEpisodes.add(e.id));
+    else state.selectedEpisodes.clear();
+    render();
+  };
+
+  els.view.querySelectorAll('[data-sel]').forEach((box) => {
+    box.onchange = (event) => {
+      const id = event.target.dataset.sel;
+      event.target.checked ? state.selectedEpisodes.add(id) : state.selectedEpisodes.delete(id);
+      render();
+    };
+  });
+
+  els.view.querySelectorAll('[data-sort]').forEach((headerBtn) => {
+    headerBtn.onclick = () => {
+      const by = headerBtn.dataset.sort;
+      if (state.sort.by === by) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+      else { state.sort.by = by; state.sort.dir = 'asc'; }
+      render();
+    };
+  });
+
+  els.view.querySelector('#bulkListened').onclick = () => bulkToggleListened(true);
+  els.view.querySelector('#bulkUnlistened').onclick = () => bulkToggleListened(false);
+  els.view.querySelector('#bulkDelete').onclick = bulkDeleteEpisodes;
+
+  els.view.querySelector('tbody').onclick = (event) => {
+    const toggle = event.target.dataset.toggle;
+    const edit = event.target.dataset.edit;
+    const del = event.target.dataset.del;
+
+    if (toggle) {
+      state.db.episodes = state.db.episodes.map((e) => {
+        if (e.id !== toggle) return e;
+        const listened = !e.listened;
+        return { ...e, listened, listenedDate: listened ? nowDate() : '' };
+      });
+      saveDb();
+      return render();
+    }
+    if (edit) {
+      const episode = state.db.episodes.find((e) => e.id === edit);
+      return openEpisodeModal(episode);
+    }
+    if (del && confirm('Slet episode?')) {
+      state.db.episodes = state.db.episodes.filter((e) => e.id !== del);
+      state.selectedEpisodes.delete(del);
+      saveDb();
+      return render();
+    }
   };
 }
 
-function openEpisodeModal(ep=null) {
-  const isEdit = !!ep;
-  els.episodeModal.innerHTML = `<form method="dialog">
-      <h3>${isEdit?'Rediger':'Tilføj'} Episode</h3>
-      <div class="form-grid">
-        <select name="podcastId" ${isEdit?'disabled':''}>${state.db.podcasts.map(p=>`<option value="${p.id}" ${ep?.podcastId===p.id||state.selectedPodcastId===p.id?'selected':''}>${p.title}</option>`)}</select>
-        <input name="number" type="number" placeholder="Episode nr" value="${ep?.number||''}">
-        <input class="full" name="title" placeholder="Titel" value="${ep?.title||''}" required>
-        <input name="date" type="date" value="${ep?.date||dateNow()}">
-        <input name="duration" placeholder="Varighed (hh:mm:ss)" value="${ep ? `${Math.floor(ep.duration/60)}:${String(ep.duration%60).padStart(2,'0')}:00` : '00:45:00'}">
-        <label><input type="checkbox" name="listened" ${ep?.listened?'checked':''}> Lyttet</label>
+function sortEpisodes(a, b) {
+  const key = state.sort.by;
+  let x = a[key];
+  let y = b[key];
+  if (key === 'date') {
+    x = new Date(a.date).getTime();
+    y = new Date(b.date).getTime();
+  }
+  if (key === 'title') {
+    x = (a.title || '').toLowerCase();
+    y = (b.title || '').toLowerCase();
+  }
+  if (x == null) x = -Infinity;
+  if (y == null) y = -Infinity;
+  const result = x > y ? 1 : x < y ? -1 : 0;
+  return state.sort.dir === 'asc' ? result : -result;
+}
+
+function bulkToggleListened(listenValue) {
+  const ids = [...state.selectedEpisodes];
+  if (!ids.length) return;
+  state.db.episodes = state.db.episodes.map((e) => {
+    if (!ids.includes(e.id) || e.listened === listenValue) return e;
+    return { ...e, listened: listenValue, listenedDate: listenValue ? nowDate() : '' };
+  });
+  state.selectedEpisodes.clear();
+  saveDb();
+  render();
+}
+
+function bulkDeleteEpisodes() {
+  const ids = [...state.selectedEpisodes];
+  if (!ids.length) return;
+  if (!confirm(`Slet ${ids.length} valgte episoder?`)) return;
+  state.db.episodes = state.db.episodes.filter((e) => !ids.includes(e.id));
+  state.selectedEpisodes.clear();
+  saveDb();
+  render();
+}
+
+function renderStats() {
+  const episodes = state.db.episodes;
+  const listened = episodes.filter((e) => e.listened);
+  const remaining = episodes.filter((e) => !e.listened);
+
+  const byCategory = new Map();
+  const byPlatform = new Map();
+  listened.forEach((e) => {
+    const p = podcastById(e.podcastId);
+    if (!p) return;
+    byCategory.set(p.category, (byCategory.get(p.category) || 0) + 1);
+    byPlatform.set(p.platform, (byPlatform.get(p.platform) || 0) + 1);
+  });
+
+  const topCat = [...byCategory.entries()].sort((a, b) => b[1] - a[1])[0];
+  const topPlatformRows = ['Pocket Casts', 'YouTube', 'Podimo'].map((name) => `<li><span>${name}</span><span>${byPlatform.get(name) || 0}</span></li>`).join('');
+
+  const podcastCounts = new Map();
+  listened.forEach((e) => podcastCounts.set(e.podcastId, (podcastCounts.get(e.podcastId) || 0) + 1));
+  const topPodcast = [...podcastCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  els.view.innerHTML = `
+    <section class="grid stats-grid">
+      <article class="card kpi"><span class="small">Resterende episoder</span><strong>${remaining.length}</strong></article>
+      <article class="card kpi"><span class="small">Resterende tid</span><strong>${formatMinutes(remaining.reduce((a,e)=>a+e.duration,0))}</strong></article>
+      <article class="card kpi"><span class="small">Total lyttetid</span><strong>${formatMinutes(listened.reduce((a,e)=>a+e.duration,0))}</strong></article>
+      <article class="card kpi"><span class="small">Tid sparet 1.2x</span><strong>${formatMinutes(listened.reduce((a,e)=>a+Math.round(e.duration/6),0))}</strong></article>
+    </section>
+    <section class="grid" style="grid-template-columns:2fr 2fr 2fr; margin-top:1rem">
+      <article class="card"><h3>Mest lyttede podcast</h3><p style="margin-top:.6rem">${topPodcast ? `${podcastById(topPodcast[0])?.title || '—'} (${topPodcast[1]} episoder)` : 'Ingen data'}</p></article>
+      <article class="card"><h3>Mest populære kategori</h3><p style="margin-top:.6rem">${topCat ? `${topCat[0]} (${topCat[1]})` : 'Ingen data'}</p></article>
+      <article class="card"><h3>Platform statistik</h3><ul class="list">${topPlatformRows}</ul></article>
+    </section>`;
+}
+
+function renderSettings() {
+  const customCategories = state.db.categories.filter((c) => c.editable !== false);
+  const sizeKB = (new Blob([JSON.stringify(state.db)]).size / 1024).toFixed(2);
+
+  els.view.innerHTML = `
+    <section class="card">
+      <h3>Import/Export <button id="guideBtn" class="icon-btn">❓</button></h3>
+      <div class="actions" style="margin-top:.7rem">
+        <button id="exportBtn">Eksport data (JSON)</button>
+        <input type="file" id="importInput" accept="application/json" />
       </div>
-      <div class="actions" style="margin-top:.7rem"><button class="primary">Gem</button><button value="cancel">Annuller</button></div>
+      <p class="small" style="margin-top:.65rem">Lagerplads i brug: ${sizeKB} KB</p>
+      <button id="clearBtn" class="danger" style="margin-top:.6rem">Slet alle data</button>
+    </section>
+
+    <section class="card" style="margin-top:1rem">
+      <h3>Kategori administration</h3>
+      <div class="actions" style="margin-top:.6rem">
+        <input id="newCatName" placeholder="Kategori navn" />
+        <input id="newCatIcon" placeholder="Ikon (fx 🎙️)" maxlength="2" />
+        <button id="addCatBtn" class="primary">Tilføj kategori</button>
+      </div>
+      <ul class="list">${state.db.categories.map((c) => `<li><span>${c.icon || '🏷️'} ${c.name}</span>${c.editable === false ? '<span class="small">Standard</span>' : `<button data-delcat="${c.name}" class="danger">Slet</button>`}</li>`).join('')}</ul>
+      ${customCategories.length ? '' : '<p class="small" style="margin-top:.5rem">Ingen custom kategorier endnu.</p>'}
+    </section>`;
+
+  els.view.querySelector('#guideBtn').onclick = openImportGuide;
+  els.view.querySelector('#exportBtn').onclick = exportData;
+  els.view.querySelector('#importInput').onchange = importData;
+  els.view.querySelector('#clearBtn').onclick = clearAllData;
+  els.view.querySelector('#addCatBtn').onclick = addCategory;
+
+  els.view.querySelectorAll('[data-delcat]').forEach((btn) => {
+    btn.onclick = () => {
+      state.db.categories = state.db.categories.filter((c) => c.name !== btn.dataset.delcat);
+      saveDb();
+      render();
+    };
+  });
+}
+
+function exportData() {
+  const blob = new Blob([JSON.stringify(state.db, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `podcast-backup-${nowDate()}.json`;
+  a.click();
+}
+
+async function importData(event) {
+  try {
+    setLoading(true);
+    const file = event.target.files[0];
+    if (!file) return;
+    const payload = JSON.parse(await file.text());
+    if (!payload.podcasts || !payload.episodes) throw new Error('Ugyldig backup-fil');
+    state.db = payload;
+    saveDb();
+    render();
+  } catch (error) {
+    alert(error.message || 'Import fejlede');
+  } finally {
+    setLoading(false);
+  }
+}
+
+function clearAllData() {
+  if (!confirm('Er du sikker? Dette kan ikke fortrydes.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  state.db = loadDb();
+  state.selectedPodcastId = null;
+  state.selectedEpisodes.clear();
+  state.route = 'home';
+  render();
+}
+
+function addCategory() {
+  const nameEl = els.view.querySelector('#newCatName');
+  const iconEl = els.view.querySelector('#newCatIcon');
+  const name = nameEl.value.trim();
+  const icon = iconEl.value.trim() || '🏷️';
+  if (!name) return;
+  if (state.db.categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+    alert('Kategori findes allerede.');
+    return;
+  }
+  state.db.categories.push({ name, icon, editable: true });
+  saveDb();
+  render();
+}
+
+function openPodcastModal(existing = null) {
+  const isEdit = Boolean(existing);
+  els.podcastModal.innerHTML = `
+    <form method="dialog">
+      <h3>${isEdit ? 'Rediger Podcast' : 'Tilføj Podcast'}</h3>
+      <div class="form-grid" style="margin-top:.7rem">
+        <input class="full" name="title" placeholder="Titel" value="${existing?.title || ''}" required />
+        <select name="category">${state.db.categories.map((c) => `<option ${existing?.category === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}</select>
+        <input name="language" placeholder="Sprog" value="${existing?.language || ''}" />
+        <input class="full" name="feedUrl" placeholder="Feed URL" value="${existing?.feedUrl || ''}" />
+        <select name="platform">${['Pocket Casts', 'YouTube', 'Podimo'].map((p) => `<option ${existing?.platform === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
+        <input name="image" placeholder="Billede URL" value="${existing?.image || ''}" />
+        <textarea class="full" name="description" placeholder="Beskrivelse">${existing?.description || ''}</textarea>
+        <label class="full"><input type="checkbox" name="favorite" ${existing?.favorite ? 'checked' : ''} /> Favorit</label>
+      </div>
+      <div class="actions" style="margin-top:.8rem">
+        <button class="primary">Gem</button>
+        <button value="cancel">Annuller</button>
+      </div>
     </form>`;
+
+  const form = els.podcastModal.querySelector('form');
+  els.podcastModal.showModal();
+
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.favorite = form.favorite.checked;
+    if (isEdit) {
+      state.db.podcasts = state.db.podcasts.map((p) => (p.id === existing.id ? { ...p, ...data } : p));
+    } else {
+      state.db.podcasts.push({ id: uid(), ...data, createdAt: Date.now() });
+    }
+    saveDb();
+    els.podcastModal.close();
+    render();
+  };
+}
+
+function openEpisodeModal(existing = null) {
+  const isEdit = Boolean(existing);
+  if (!state.db.podcasts.length) {
+    alert('Opret en podcast først.');
+    return;
+  }
+
+  els.episodeModal.innerHTML = `
+    <form method="dialog">
+      <h3>${isEdit ? 'Rediger Episode' : 'Tilføj Episode'}</h3>
+      <div class="form-grid" style="margin-top:.7rem">
+        <select name="podcastId" ${isEdit ? 'disabled' : ''}>${state.db.podcasts.map((p) => `<option value="${p.id}" ${(existing?.podcastId === p.id || state.selectedPodcastId === p.id) ? 'selected' : ''}>${p.title}</option>`).join('')}</select>
+        <input name="number" type="number" placeholder="Episode nr" value="${existing?.number ?? ''}" />
+        <input class="full" name="title" placeholder="Titel" value="${existing?.title || ''}" required />
+        <input name="date" type="date" value="${existing?.date || nowDate()}" />
+        <input name="duration" placeholder="Varighed (tt:mm:ss)" value="${existing ? `${Math.floor(existing.duration / 60)}:${String(existing.duration % 60).padStart(2, '0')}:00` : '00:45:00'}" />
+        <label><input type="checkbox" name="listened" ${existing?.listened ? 'checked' : ''} /> Lyttet</label>
+      </div>
+      <div class="actions" style="margin-top:.8rem">
+        <button class="primary">Gem</button>
+        <button value="cancel">Annuller</button>
+      </div>
+    </form>`;
+
   const form = els.episodeModal.querySelector('form');
   els.episodeModal.showModal();
-  form.onsubmit = (e)=>{
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(form).entries());
-    d.listened = form.listened.checked;
-    d.duration = parseDuration(d.duration);
-    d.number = Number(d.number) || null;
-    if (isEdit) state.db.episodes = state.db.episodes.map(x=>x.id===ep.id?{...x,...d}:x);
-    else state.db.episodes.push({id:uid(), ...d, podcastId: d.podcastId || state.selectedPodcastId, listenedDate: d.listened ? dateNow() : ''});
-    saveDb(); els.episodeModal.close(); render();
+
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.listened = form.listened.checked;
+    data.duration = parseDuration(data.duration);
+    data.number = data.number ? Number(data.number) : null;
+
+    if (isEdit) {
+      state.db.episodes = state.db.episodes.map((e) => (e.id === existing.id ? { ...e, ...data, listenedDate: data.listened ? existing.listenedDate || nowDate() : '' } : e));
+    } else {
+      state.db.episodes.push({
+        id: uid(),
+        podcastId: data.podcastId || state.selectedPodcastId,
+        title: data.title,
+        date: data.date,
+        duration: data.duration,
+        number: data.number,
+        listened: data.listened,
+        listenedDate: data.listened ? nowDate() : '',
+        createdAt: Date.now(),
+      });
+    }
+    saveDb();
+    els.episodeModal.close();
+    render();
   };
 }
 
 function openImportGuide() {
-  els.guideModal.innerHTML = `<article class="card">
-      <h3>Guide: Import fra Google Sheets</h3>
-      <ol>
-        <li>Kopier rækker fra Google Sheets.</li>
-        <li>Format: Episode nr | Titel | Dato (dd-mm-yyyy) | Varighed (tt:mm:ss).</li>
-        <li>Klik på Google Sheets-ikon på podcast-siden og indsæt data.</li>
+  els.guideModal.innerHTML = `
+    <article class="card">
+      <h3>Google Sheets Import Guide</h3>
+      <ol style="margin-top:.8rem">
+        <li>Åbn dit Google Sheet med episoder.</li>
+        <li>Kopiér rækker i formatet: <strong>Episode nr | Titel | Dato | Varighed</strong>.</li>
+        <li>Dato skal være <strong>dd-mm-yyyy</strong>, varighed <strong>tt:mm:ss</strong>.</li>
+        <li>Gå til en podcast-side og klik på <strong>📄 Import fra Sheets</strong>.</li>
+        <li>Indsæt alle linjer og godkend import.</li>
       </ol>
-      <pre>12 | Intro til AI | 14-01-2026 | 00:42:30\n13 | Prompt tricks | 17-01-2026 | 01:10:00</pre>
-      <p>Tip: Brug konsekvent datoformat og sørg for at episode nr er tal.</p>
-      <button onclick="document.getElementById('importGuideModal').close()">Luk</button>
+      <pre style="margin-top:.8rem">1 | Velkommen | 14-02-2026 | 00:32:10
+2 | Interview med gæst | 18-02-2026 | 01:04:55</pre>
+      <p class="small" style="margin-top:.6rem">Tip: Dublet-titler er tilladt, men sørg for at datoformatet er ens på alle rækker.</p>
+      <div class="actions" style="margin-top:.8rem"><button onclick="document.getElementById('importGuideModal').close()">Luk guide</button></div>
     </article>`;
   els.guideModal.showModal();
 }
 
 function openSheetsImport(podcastId) {
-  const text = prompt('Indsæt linjer i format: nr|titel|dato|varighed');
-  if (!text) return;
-  const rows = text.split('\n').map(r=>r.trim()).filter(Boolean);
-  const newEpisodes = [];
-  for (const row of rows) {
-    const [nr,title,date,duration] = row.split('|').map(v=>v.trim());
-    if (!title || !date || !duration) continue;
-    const [dd,mm,yy] = date.split('-');
-    newEpisodes.push({id:uid(), podcastId, number:Number(nr)||null, title, date:`${yy}-${mm}-${dd}`, duration:parseDuration(duration), listened:false, listenedDate:''});
-  }
-  state.db.episodes.push(...newEpisodes);
-  saveDb(); render();
+  const input = prompt('Indsæt rækker i format: nr|titel|dato(dd-mm-yyyy)|varighed(tt:mm:ss)');
+  if (!input) return;
+
+  setLoading(true);
+  let success = 0;
+  const rows = input.split('\n').map((row) => row.trim()).filter(Boolean);
+
+  rows.forEach((row) => {
+    const [nr, title, dateRaw, durationRaw] = row.split('|').map((v) => v?.trim());
+    if (!title || !dateRaw || !durationRaw) return;
+
+    const [dd, mm, yyyy] = dateRaw.split('-');
+    if (!dd || !mm || !yyyy) return;
+
+    state.db.episodes.push({
+      id: uid(),
+      podcastId,
+      number: Number(nr) || null,
+      title,
+      date: `${yyyy}-${mm}-${dd}`,
+      duration: parseDuration(durationRaw),
+      listened: false,
+      listenedDate: '',
+      createdAt: Date.now(),
+    });
+    success += 1;
+  });
+
+  saveDb();
+  setLoading(false, `${success} episoder importeret`);
+  render();
 }
 
-function closeMobileMenu() { state.mobileOpen = false; els.sidebar.classList.remove('open'); els.overlay.classList.add('hidden'); }
-
-function wireGlobalEvents() {
-  document.querySelectorAll('[data-route]').forEach(btn => btn.onclick = () => {
-    state.route = btn.dataset.route;
-    if (state.route !== 'podcast') state.selectedPodcastId = null;
-    closeMobileMenu(); render();
+function wireEvents() {
+  document.querySelectorAll('[data-route]').forEach((btn) => {
+    btn.onclick = () => {
+      state.route = btn.dataset.route;
+      if (state.route !== 'podcast') state.selectedPodcastId = null;
+      closeMobileMenu();
+      render();
+    };
   });
-  document.getElementById('themeToggle').onclick = () => { state.db.darkMode = !state.db.darkMode; saveDb(); render(); };
+
   document.getElementById('addPodcastBtn').onclick = () => openPodcastModal();
   document.getElementById('addEpisodeBtn').onclick = () => openEpisodeModal();
+  document.getElementById('themeToggle').onclick = () => {
+    state.db.darkMode = !state.db.darkMode;
+    saveDb();
+    render();
+  };
+
   document.getElementById('mobileMenuBtn').onclick = () => {
     state.mobileOpen = !state.mobileOpen;
     els.sidebar.classList.toggle('open', state.mobileOpen);
@@ -314,5 +665,5 @@ function wireGlobalEvents() {
   els.overlay.onclick = closeMobileMenu;
 }
 
-wireGlobalEvents();
+wireEvents();
 render();

@@ -7,22 +7,29 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="app" class="app">
+    <div class="layout">
       <aside id="sidebar" class="sidebar">
-        <h1>🎧 Podcast Tracker</h1>
-        <button data-route="home">Home</button>
-        <button data-route="podcasts">Alle podcasts</button>
-        <button data-route="stats">Statistik</button>
-        <button data-route="settings">Indstillinger</button>
-        <button id="addPodcastBtn">+ Tilføj podcast</button>
-        <button id="addEpisodeBtn">+ Tilføj episode</button>
-        <button id="themeToggle">🌙 Dark mode</button>
+        <div class="brand">🎧 Podcast Tracking Tool</div>
+        <nav class="nav">
+          <button data-route="home">🏠 Home</button>
+          <button data-route="podcasts">📚 Alle Podcasts</button>
+          <button data-route="stats">📊 Statistik</button>
+          <button data-route="settings">⚙️ Indstillinger</button>
+        </nav>
+        <div class="sidebar-actions">
+          <button id="addPodcastBtn" class="primary">+ Tilføj Podcast</button>
+          <button id="addEpisodeBtn">+ Tilføj Episode</button>
+          <button id="themeToggle">🌗 Skift tema</button>
+        </div>
       </aside>
 
       <main class="main">
-        <header class="topbar">
-          <button id="mobileMenuBtn" class="mobile-only">☰</button>
-          <h2 id="pageTitle">Home</h2>
+        <header class="topbar card">
+          <div class="topbar-left">
+            <button id="mobileMenuBtn" class="icon-btn mobile-only">☰</button>
+            <h1 id="pageTitle">Home</h1>
+          </div>
+          <span id="statusBadge" class="badge">Klar</span>
         </header>
         <section id="view"></section>
       </main>
