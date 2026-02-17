@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Podcast Tracking Tool</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <aside id="sidebar" class="sidebar">
+        <h1>🎧 Podcast Tracker</h1>
+        <button data-route="home">Home</button>
+        <button data-route="podcasts">Alle podcasts</button>
+        <button data-route="stats">Statistik</button>
+        <button data-route="settings">Indstillinger</button>
+        <button id="addPodcastBtn">+ Tilføj podcast</button>
+        <button id="addEpisodeBtn">+ Tilføj episode</button>
+        <button id="themeToggle">🌙 Dark mode</button>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <button id="mobileMenuBtn" class="mobile-only">☰</button>
+          <h2 id="pageTitle">Home</h2>
+        </header>
+        <section id="view"></section>
+      </main>
+    </div>
+
+    <div id="overlay" class="overlay hidden"></div>
+
+    <dialog id="podcastModal"></dialog>
+    <dialog id="episodeModal"></dialog>
+    <dialog id="importGuideModal"></dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
