@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Podcast Tracking Tool</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside id="sidebar" class="sidebar">
+        <div class="brand">🎧 Podcast Tracking Tool</div>
+        <nav class="nav">
+          <button data-route="home">🏠 Home</button>
+          <button data-route="podcasts">📚 Alle Podcasts</button>
+          <button data-route="stats">📊 Statistik</button>
+          <button data-route="settings">⚙️ Indstillinger</button>
+        </nav>
+        <div class="sidebar-actions">
+          <button id="addPodcastBtn" class="primary">+ Tilføj Podcast</button>
+          <button id="addEpisodeBtn">+ Tilføj Episode</button>
+          <label class="small" for="playbackSpeed">Afspilningshastighed</label>
+          <select id="playbackSpeed">
+            <option value="1">1x</option>
+            <option value="1.1">1,1x</option>
+            <option value="1.2">1,2x</option>
+            <option value="1.3">1,3x</option>
+            <option value="1.4">1,4x</option>
+            <option value="1.5">1,5x</option>
+            <option value="1.6">1,6x</option>
+            <option value="1.7">1,7x</option>
+            <option value="1.8">1,8x</option>
+            <option value="1.9">1,9x</option>
+            <option value="2">2x</option>
+          </select>
+          <button id="themeToggle">🌗 Skift tema</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar card">
+          <div class="topbar-left">
+            <button id="mobileMenuBtn" class="icon-btn mobile-only">☰</button>
+            <h1 id="pageTitle">Home</h1>
+          </div>
+          <span id="statusBadge" class="badge">Klar</span>
+        </header>
+        <section id="view"></section>
+      </main>
+    </div>
+
+    <div id="overlay" class="overlay hidden"></div>
+
+    <dialog id="podcastModal"></dialog>
+    <dialog id="episodeModal"></dialog>
+    <dialog id="importGuideModal"></dialog>
+    <dialog id="sheetImportModal"></dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
